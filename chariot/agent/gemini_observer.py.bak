@@ -1,0 +1,271 @@
+from __future__ import annotations
+
+import json
+import os
+import time
+from pathlib import Path
+from typing import Optional
+
+from dotenv import load_dotenv
+
+from agent.schemas import ObserverResponse
+from config import load_config
+from literature.bond_client import BondClient
+from literature.evidence import build_evidence_packet, compare_conductivity_values, summarize_evidence
+from observer.analytics import campaign_summary, recent_trials, top_trials
+from observer.flags import generate_flags
+from observer.loader import load_brine_csv
+from shadow.decision_log import load_decision_log
+from shadow.view import build_shadow_view
+
+load_dotenv()
+
+
+SYSTEM_RULES = """
+You are the read-only scientific interface for the BRINE self-driving electrolyte laboratory.
+Your purpose is to help a scientist understand experimental results, causal CHARIOT shadow decisions,
+trends, and relevant literature. You do NOT control the laboratory.
+
+CONTROL BOUNDARY
+- Never start, stop, repeat, choose, or alter a BRINE experiment.
+- Never modify BO, the digital twin, CHARIOT thresholds, robot settings, potentiostat settings, files, or code.
+- CHARIOT is SHADOW-ONLY. Its decisions did not control BRINE.
+- The digital twin predicts CONDUCTIVITY ONLY. It does not predict HER, OER, stability window, or LSV outcome.
+- CHARIOT uses a frozen pre-trial conductivity prediction plus measured EIS to judge whether conductivity evidence
+  is sufficient for RUN_LSV / REVIEW / SKIP_LSV. It never claims to predict LSV success.
+- REVIEW means decision insufficiency and counts as performing LSV in benchmark comparisons.
+
+BRINE VARIABLES
+x1 = NaCl stock amount (uL)
+x2 = KCl stock amount (uL)
+x3 = ZnCl2 stock amount (uL)
+x4 = ZnSO4 stock amount (uL)
+y1 = ionic conductivity (S/m)
+HER and OER are potentials in V. OER-HER may be reported as a stability-window descriptor.
+Total formulation volume is configured as 1200 uL.
+Never invent stock concentrations.
+
+NUMERICAL RULES
+- Python-calculated statistics and CHARIOT log values are authoritative.
+- Do not invent missing measurements or uncertainty values.
+- The twin's raw uncertainty is NOT assumed to be a Gaussian sigma.
+- normalized_disagreement_score is NOT a z-score. Describe it as a normalized model-measurement disagreement score.
+- Old CHARIOT decisions are causal/frozen and must never be reinterpreted as if future trials were known.
+
+CHARIOT INTERPRETATION
+- A SKIP means the measured conductivity is below target and the calibrated twin evidence also supports a confident
+  below-target decision.
+- A REVIEW means automatic triage is not sufficiently supported, for example cold start, prediction band crossing
+  the target, or strong twin/EIS disagreement.
+- A RUN means conductivity qualification is met with acceptable model/measurement consistency.
+- A potentially avoidable LSV is counterfactual: BRINE collected LSV data although shadow CHARIOT would have skipped.
+  It does not prove the original experiment was scientifically wrong.
+- Do not present CHARIOT as a raw-savings winner over the blind fixed threshold. The fixed threshold necessarily skips
+  every below-target EIS value; CHARIOT intentionally sacrifices some of that maximum savings to escalate uncertain cases.
+
+LITERATURE
+Valency Bond literature is external evidence. Distinguish BRINE measurement, literature observation, quantitative
+benchmark, and scientific hypothesis. Respect paper similarity classifications exactly. Never invent a literature value.
+If no directly comparable numerical benchmark exists, say: "No directly comparable numerical literature value was found in the retrieved papers."
+Prefer direct/very-close/close analogues and avoid citing low-similarity papers when better evidence exists.
+Mechanisms in analogue papers are hypotheses for BRINE unless the campaign directly establishes them.
+
+MEASUREMENT INSUFFICIENCY
+Composition + EIS + LSV do not necessarily identify a unique physical mechanism. If the available measurements cannot
+separate mechanisms, state measurement insufficiency. Do not convert correlation into causation.
+
+PLOTS
+Do not request or generate a plot unless the user explicitly asks for a plot, graph, chart, figure, or visualization.
+"""
+
+
+class GeminiObserver:
+    def __init__(
+        self,
+        config_path: str | Path | None = None,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        bond_client: Optional[BondClient] = None,
+    ):
+        self.cfg = load_config(config_path)
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        self.model = model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+        if not self.api_key:
+            raise RuntimeError("Set GEMINI_API_KEY in your .env file.")
+
+        from google import genai
+        from google.genai import types
+
+        timeout_ms = int(os.getenv("GEMINI_TIMEOUT_MS", "30000"))
+        retry_attempts = int(os.getenv("GEMINI_RETRY_ATTEMPTS", "1"))
+        self.client = genai.Client(
+            api_key=self.api_key,
+            http_options=types.HttpOptions(
+                timeout=timeout_ms,
+                retry_options=types.HttpRetryOptions(attempts=retry_attempts),
+            ),
+        )
+        self.bond_client = bond_client or BondClient()
+
+    def _context(self, campaign_file: Path, decision_log_file: Path) -> dict:
+        df = load_brine_csv(campaign_file, self.cfg)
+        decisions = load_decision_log(decision_log_file)
+        shadow_view = build_shadow_view(df, decisions)
+        flags = [f.to_dict() for f in generate_flags(df, shadow_view, self.cfg)]
+        return {
+            "summary": campaign_summary(df, shadow_view, self.cfg),
+            "recent_trials": recent_trials(
+                df, shadow_view, min(int(self.cfg["observer"].get("recent_rows", 10)), 5)
+            ),
+            "top_3_conductivity": top_trials(df, "conductivity", 3, True),
+            "flags": flags[:15],
+            "decision_log": str(decision_log_file),
+            "read_only": True,
+            "shadow_only": True,
+            "column_mapping": self.cfg["columns"],
+            "stock_configuration": self.cfg["stocks"],
+        }
+
+    def _explicit_literature_request(self, question: str) -> bool:
+        q = question.lower()
+        phrases = [
+            "literature", "paper", "papers", "published", "publication", "publications",
+            "reported value", "reported values", "reported in", "compare with literature",
+            "compare to literature", "compare with papers", "compare to papers", "valency",
+            "bond", "has this been reported", "has anyone reported", "find studies", "find study",
+            "find research", "research papers", "doi",
+        ]
+        return any(phrase in q for phrase in phrases)
+
+    def _build_bond_query(self, question: str) -> str:
+        q = question.lower()
+        chemistry = (
+            "aqueous electrolyte NaCl KCl ZnCl2 ZnSO4 zinc chloride zinc sulfate mixed salt electrolyte "
+        )
+        if "conductivity" in q or "ionic conductivity" in q:
+            return chemistry + "ionic conductivity concentration dependence ion transport viscosity ion pairing"
+        if "her" in q or "hydrogen evolution" in q:
+            return chemistry + "hydrogen evolution HER zinc aqueous electrolyte electrochemical stability"
+        if "oer" in q or "oxygen evolution" in q:
+            return chemistry + "oxygen evolution OER aqueous electrolyte electrochemical stability"
+        if "stability" in q or "window" in q:
+            return chemistry + "electrochemical stability window hydrogen evolution oxygen evolution aqueous zinc electrolyte"
+        return chemistry + "aqueous zinc electrolyte electrochemical properties transport properties"
+
+    def _prioritize_evidence(self, evidence_packet: list[dict]) -> list[dict]:
+        strong = {"direct_match", "very_close_analogue", "close_analogue"}
+        strong_papers = [p for p in evidence_packet if p.get("similarity_level") in strong]
+        if strong_papers:
+            return strong_papers
+        broad = [p for p in evidence_packet if p.get("similarity_level") == "broad_zinc_analogue"]
+        if broad:
+            return broad
+        return evidence_packet[:3]
+
+    def _get_literature_evidence(self, query: str, context: dict, limit: int = 6) -> dict:
+        if not self.bond_client.configured:
+            raise RuntimeError("Bond was requested, but BOND_BEARER_TOKEN is not configured in .env.")
+
+        print("\n[Valency Bond] Searching literature...")
+        print(f"[Valency Bond] Search query: {query}")
+        t0 = time.perf_counter()
+        raw = self.bond_client.search(query, limit=limit)
+        elapsed = time.perf_counter() - t0
+
+        full_packet = build_evidence_packet(raw)
+        summary = summarize_evidence(full_packet)
+        packet = self._prioritize_evidence(full_packet)
+
+        campaign_max = (
+            context.get("summary", {})
+            .get("outputs", {})
+            .get("ionic_conductivity_S_per_m", {})
+            .get("max")
+        )
+        comparisons = []
+        if campaign_max is not None:
+            comparisons = compare_conductivity_values(float(campaign_max), packet)
+
+        print(f"[Valency Bond] {len(full_packet)} papers returned in {elapsed:.2f} s")
+        counts = summary["similarity_counts"]
+        print(
+            "[Evidence] "
+            f"{counts['direct_match']} direct, {counts['very_close_analogue']} very close, "
+            f"{counts['close_analogue']} close, {counts['broad_zinc_analogue']} broad Zn, "
+            f"{counts['low_similarity']} low similarity"
+        )
+        print(
+            f"[Evidence] {summary['papers_with_explicit_numeric_conductivity']} papers contain explicit numerical conductivity values"
+        )
+        print(f"[Evidence] {len(packet)} papers passed the relevance filter for Gemini")
+
+        return {
+            "bond_query": query,
+            "bond_search_confidence": raw.get("confidence"),
+            "bond_warnings": raw.get("warnings", []),
+            "evidence_summary": summary,
+            "papers": packet,
+            "conductivity_comparisons": comparisons,
+            "evidence_rules": {
+                "numeric_values_must_be_explicit": True,
+                "python_handles_unit_conversion": True,
+                "analogues_are_not_direct_matches": True,
+                "direct_benchmark_requires_comparable_chemistry": True,
+                "low_similarity_filtered_when_better_evidence_exists": True,
+            },
+        }
+
+    def _ask(self, question: str, context: dict, literature_evidence: dict | None = None) -> ObserverResponse:
+        from google.genai import types
+
+        prompt = SYSTEM_RULES + "\n\nDETERMINISTIC BRINE + CHARIOT CONTEXT:\n" + json.dumps(context, indent=2, default=str)
+        if literature_evidence is not None:
+            prompt += "\n\nVALIDATED VALENCY BOND EVIDENCE:\n" + json.dumps(literature_evidence, indent=2, default=str)
+            prompt += """
+
+MANDATORY LITERATURE INTERPRETATION
+The literature evidence has already been retrieved, classified, filtered, and normalized by Python.
+Do not invent values, modify similarity classes, or expose internal dictionary names.
+If no directly comparable numerical benchmark exists, state that naturally.
+Focus on the most chemically relevant papers. When discussing scope for improvement, use the current best measured
+value, whether the best point lies near a sampled boundary when supported, whether literature provides a true ceiling,
+and what remains unknown. Meeting a screening target does not mean the property is optimized.
+"""
+        prompt += "\n\nUSER QUESTION:\n" + question
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ObserverResponse,
+                temperature=0.1,
+                max_output_tokens=1400,
+            ),
+        )
+        return ObserverResponse.model_validate_json(response.text)
+
+    def analyze(
+        self,
+        question: str,
+        campaign_file: str | Path,
+        decision_log_file: str | Path,
+        use_bond: bool = False,
+    ) -> ObserverResponse:
+        campaign_file = Path(campaign_file)
+        decision_log_file = Path(decision_log_file)
+        # Fresh state is rebuilt on EVERY turn so an ongoing campaign is never stale.
+        context = self._context(campaign_file, decision_log_file)
+
+        if use_bond and self._explicit_literature_request(question):
+            bond_query = self._build_bond_query(question)
+            evidence = self._get_literature_evidence(bond_query, context)
+            print("[Gemini] Comparing validated literature with campaign data...")
+            return self._ask(question, context, evidence)
+
+        first = self._ask(question, context)
+        if use_bond and first.needs_literature:
+            bond_query = self._build_bond_query(question)
+            evidence = self._get_literature_evidence(bond_query, context)
+            print("[Gemini] Re-analyzing with validated literature evidence...")
+            return self._ask(question, context, evidence)
+        return first

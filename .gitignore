@@ -1,0 +1,10 @@
+# CHARIOT private/local files
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+dashboard_paths.json
+
+# CHARIOT generated runtime output
+chariot/outputs/*.csv
