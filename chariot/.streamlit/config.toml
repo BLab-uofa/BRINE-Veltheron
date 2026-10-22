@@ -1,0 +1,11 @@
+# BRINE x CHARIOT native Streamlit baseline.
+# Keep the native base LIGHT so inputs/tables are genuinely light in light mode.
+# dashboard.py applies the dark presentation at runtime when Dark mode is enabled.
+
+[theme]
+base = "light"
+primaryColor = "#6658cf"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false

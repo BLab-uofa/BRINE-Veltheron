@@ -1,0 +1,73 @@
+<svg width="1400" height="760" viewBox="0 0 1400 760" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font: 700 34px Arial, sans-serif; fill: #1f2937; }
+      .label { font: 700 20px Arial, sans-serif; fill: #111827; }
+      .small { font: 15px Arial, sans-serif; fill: #374151; }
+      .tiny { font: 14px Arial, sans-serif; fill: #4b5563; }
+      .box { rx: 24; ry: 24; stroke: #d1d5db; stroke-width: 2; }
+      .arrow { stroke: #6b7280; stroke-width: 3; fill: none; marker-end: url(#end); }
+      .arrowbi { stroke: #6b7280; stroke-width: 3; fill: none; marker-start: url(#start); marker-end: url(#end); }
+    </style>
+    <marker id="end" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#6b7280"/>
+    </marker>
+    <marker id="start" markerWidth="10" markerHeight="10" refX="1" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M9,0 L9,6 L0,3 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <text x="700" y="56" text-anchor="middle" class="title">BRINE × CHARIOT scientist-facing system</text>
+
+  <rect x="70" y="110" width="240" height="118" class="box" fill="#e8f3ff"/>
+  <text x="190" y="156" text-anchor="middle" class="label">BRINE campaign</text>
+  <text x="190" y="184" text-anchor="middle" class="small">Running experiments</text>
+  <text x="190" y="206" text-anchor="middle" class="small">EIS / LSV results → campaign CSV</text>
+
+  <rect x="70" y="320" width="240" height="118" class="box" fill="#eefcf4"/>
+  <text x="190" y="366" text-anchor="middle" class="label">Digital twin</text>
+  <text x="190" y="394" text-anchor="middle" class="small">Pre-trial conductivity</text>
+  <text x="190" y="416" text-anchor="middle" class="small">prediction + uncertainty → twin CSV</text>
+
+  <rect x="410" y="210" width="300" height="160" class="box" fill="#fff7e8"/>
+  <text x="560" y="258" text-anchor="middle" class="label">CHARIOT</text>
+  <text x="560" y="286" text-anchor="middle" class="small">Shadow-only causal triage</text>
+  <text x="560" y="310" text-anchor="middle" class="small">Reads measured EIS + frozen twin output</text>
+  <text x="560" y="334" text-anchor="middle" class="small">Writes RUN / REVIEW / SKIP</text>
+  <text x="560" y="356" text-anchor="middle" class="small">recommendation to decision log</text>
+
+  <rect x="815" y="110" width="250" height="118" class="box" fill="#f3f0ff"/>
+  <text x="940" y="156" text-anchor="middle" class="label">Dashboard</text>
+  <text x="940" y="184" text-anchor="middle" class="small">Live metrics, plots,</text>
+  <text x="940" y="206" text-anchor="middle" class="small">campaign state, CHARIOT state</text>
+
+  <rect x="815" y="320" width="250" height="118" class="box" fill="#ffeef1"/>
+  <text x="940" y="366" text-anchor="middle" class="label">Gemini</text>
+  <text x="940" y="394" text-anchor="middle" class="small">Read-only scientist assistant</text>
+  <text x="940" y="416" text-anchor="middle" class="small">Explains live system state</text>
+
+  <rect x="1145" y="320" width="200" height="118" class="box" fill="#eef2ff"/>
+  <text x="1245" y="366" text-anchor="middle" class="label">Valency Bond</text>
+  <text x="1245" y="394" text-anchor="middle" class="small">Paper search + metadata</text>
+  <text x="1245" y="416" text-anchor="middle" class="small">Used only on explicit literature requests</text>
+
+  <rect x="1040" y="560" width="245" height="118" class="box" fill="#f9fafb"/>
+  <text x="1162" y="606" text-anchor="middle" class="label">Scientist / user</text>
+  <text x="1162" y="634" text-anchor="middle" class="small">Asks questions through</text>
+  <text x="1162" y="656" text-anchor="middle" class="small">the Gemini chat window</text>
+
+  <path d="M310 169 L410 250" class="arrow"/>
+  <path d="M310 379 L410 330" class="arrow"/>
+  <path d="M710 260 L815 169" class="arrow"/>
+  <path d="M710 330 L815 378" class="arrow"/>
+  <path d="M1065 379 L1145 379" class="arrowbi"/>
+  <path d="M1110 560 L980 438" class="arrowbi"/>
+  <path d="M940 228 L940 320" class="arrow"/>
+
+  <text x="1240" y="545" text-anchor="middle" class="tiny">User communicates with Gemini</text>
+  <text x="1205" y="302" text-anchor="middle" class="tiny">Bidirectional paper grounding</text>
+
+  <rect x="70" y="620" width="620" height="78" class="box" fill="#ffffff"/>
+  <text x="380" y="652" text-anchor="middle" class="label">Safety boundary</text>
+  <text x="380" y="678" text-anchor="middle" class="small">BRINE runs the physical experiment. CHARIOT is shadow-only. Gemini and Bond are read-only.</text>
+</svg>

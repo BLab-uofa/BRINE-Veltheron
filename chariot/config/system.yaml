@@ -1,0 +1,67 @@
+campaign:
+  total_formulation_volume_uL: 1200.0
+  conductivity_target_S_per_m: 20.0
+
+columns:
+  trial_index: trial_index
+  inputs:
+    x1: x1
+    x2: x2
+    x3: x3
+    x4: x4
+  outputs:
+    conductivity: y1
+    her: y2
+    oer: y3
+
+stocks:
+  x1:
+    name: NaCl
+    stock_concentration_M: null
+  x2:
+    name: KCl
+    stock_concentration_M: null
+  x3:
+    name: ZnCl2
+    stock_concentration_M: null
+  x4:
+    name: ZnSO4
+    stock_concentration_M: null
+
+shadow:
+  mode: shadow
+  policy_version: uncertainty_triage_v2
+  decision_log_csv: outputs/chariot_decision_log.csv
+  pretrial_prediction_log_csv: outputs/twin_predictions.csv
+  replay_output_csv: outputs/chariot_replay.csv
+  legacy_shadow_csv: outputs/chariot_shadow.csv
+
+live:
+  composition_match_tolerance_uL: 0.01
+
+triage:
+  min_calibration_points: 10
+  calibration_coverage_target: 0.90
+  min_calibration_factor: 1.0
+  uncertainty_floor_S_per_m: 0.05
+  disagreement_score_threshold: 1.0
+  borderline_band_S_per_m: 0.5
+  require_prediction_upper_below_target_for_skip: true
+
+replay:
+  min_train_points_for_model: 4
+  random_state: 0
+  gp_optimizer_restarts: 1
+  min_residual_points_for_uncertainty: 5
+  empirical_uncertainty_window: 20
+  empirical_uncertainty_base_quantile: 0.50
+
+benchmark:
+  sensitivity:
+    min_calibration_points: [8, 10, 12]
+    calibration_coverage_target: [0.85, 0.90, 0.95]
+    disagreement_score_threshold: [0.8, 1.0, 1.2]
+
+observer:
+  recent_rows: 10
+  outlier_z_threshold: 2.5

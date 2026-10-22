@@ -1,0 +1,31 @@
+{
+  "n_trials": 45,
+  "full_protocol": {
+    "lsv_performed": 45,
+    "lsv_avoided": 0,
+    "lsv_reduction_vs_full": 0.0
+  },
+  "fixed_20_S_per_m_gate": {
+    "lsv_performed": 35,
+    "lsv_avoided": 10,
+    "lsv_reduction_vs_full": 0.2222222222222222,
+    "note": "Maximum-savings baseline. It blindly skips every below-target EIS result and has no model-disagreement review state."
+  },
+  "chariot": {
+    "run_lsv": 21,
+    "review_lsv": 24,
+    "skip_lsv": 0,
+    "effective_lsv_performed_run_plus_review": 45,
+    "lsv_avoided": 0,
+    "lsv_reduction_vs_full": 0.0,
+    "fixed_gate_savings_retained_fraction": 0.0,
+    "below_target_cases_escalated_to_review": 10,
+    "below_target_disagreement_cases_escalated_to_review": 0,
+    "conductivity_qualified_candidates": 35,
+    "conductivity_qualified_candidates_auto_skipped": 0,
+    "conductivity_qualified_retention_fraction": 1.0,
+    "mean_absolute_twin_error_S_per_m": 3.3579133482591086,
+    "empirical_calibrated_band_coverage": 0.8055555555555556,
+    "headline_note": "CHARIOT is not designed to beat the blind fixed gate on raw savings. Its value is retaining much of that savings while escalating uncertain/model-disagreement cases instead of automatically discarding them."
+  }
+}

@@ -1,0 +1,12 @@
+pandas>=2.0
+numpy>=1.26
+matplotlib>=3.8
+scikit-learn>=1.4
+pydantic>=2.6
+PyYAML>=6.0
+python-dotenv>=1.0
+google-genai>=2.3.0
+mcp>=2.3.0
+httpx2>=0.28
+pytest>=8.0
+streamlit>=1.40
